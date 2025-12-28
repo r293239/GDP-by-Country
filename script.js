@@ -1,43 +1,120 @@
 // Global variables
 let currentYear = "2025";
-let currentView = "gdp"; // or "gdp_per_capita"
+let currentView = "gdp";
 let allCountriesData = {};
 let currentChart = null;
 
+// List of countries to load
+const countryFiles = [
+    "china", "usa", "india", "germany", "japan",
+    "uk", "france", "italy", "brazil", "canada"
+];
+
 // Initialize
-document.addEventListener('DOMContentLoaded', async function() {
-    await loadAllCountriesData();
-    updateDisplay();
+document.addEventListener('DOMContentLoaded', function() {
+    loadAllCountriesData();
     setupEventListeners();
 });
 
 // Load all country data files
 async function loadAllCountriesData() {
-    const countries = ['china', 'usa', 'india', 'germany', 'japan'];
+    console.log("Loading country data...");
     
-    for (const country of countries) {
+    for (const country of countryFiles) {
         try {
+            // Load the country HTML file
             const response = await fetch(`countries/${country}.html`);
             const html = await response.text();
             
-            // Extract the data from the script tag
-            const dataMatch = html.match(/const \w+GDPData = ({[\s\S]*?});/);
-            if (dataMatch) {
-                const dataString = dataMatch[1];
-                // Fix the string to make it valid JSON
-                const jsonString = dataString.replace(/(\w+):/g, '"$1":')
-                    .replace(/'/g, '"');
-                const countryData = JSON.parse(jsonString);
-                allCountriesData[country] = countryData;
+            // Parse the HTML to find GDP data
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const scriptTags = doc.getElementsByTagName('script');
+            
+            let countryGDPData = null;
+            
+            // Look for the GDP data in script tags
+            for (let script of scriptTags) {
+                if (script.textContent.includes('const gdpData =')) {
+                    // Extract the data using regex
+                    const match = script.textContent.match(/const gdpData = ({[\s\S]*?});/);
+                    if (match) {
+                        try {
+                            // Clean the string and parse as JSON
+                            let dataString = match[1]
+                                .replace(/(\w+):/g, '"$1":') // Add quotes to keys
+                                .replace(/'/g, '"')         // Replace single quotes
+                                .replace(/,\s*}/g, '}');    // Remove trailing commas
+                            
+                            countryGDPData = JSON.parse(dataString);
+                            console.log(`Loaded data for ${countryGDPData.name}`);
+                        } catch (e) {
+                            console.error(`Error parsing ${country} data:`, e);
+                            // Fallback: create basic data
+                            countryGDPData = createDefaultData(country);
+                        }
+                    }
+                }
             }
+            
+            // If no data found in script, create default
+            if (!countryGDPData) {
+                console.warn(`No data found for ${country}, using default`);
+                countryGDPData = createDefaultData(country);
+            }
+            
+            // Store the data with country code as key
+            allCountriesData[country] = countryGDPData;
+            
         } catch (error) {
-            console.error(`Error loading ${country} data:`, error);
+            console.error(`Error loading ${country}:`, error);
+            // Create default data for this country
+            allCountriesData[country] = createDefaultData(country);
         }
     }
+    
+    // After loading all data, update the display
+    updateDisplay();
+}
+
+// Create default data if file doesn't exist
+function createDefaultData(countryCode) {
+    const countryNames = {
+        "china": "China",
+        "usa": "United States",
+        "india": "India",
+        "germany": "Germany",
+        "japan": "Japan",
+        "uk": "United Kingdom",
+        "france": "France",
+        "italy": "Italy",
+        "brazil": "Brazil",
+        "canada": "Canada"
+    };
+    
+    const name = countryNames[countryCode] || countryCode;
+    
+    return {
+        name: name,
+        historical_names: [name],
+        region: "Unknown",
+        currency: "USD",
+        gdp_data: {
+            "2025": { gdp: 1000, gdp_per_capita: 10000, population: 100 },
+            "2024": { gdp: 950, gdp_per_capita: 9500, population: 100 },
+            "2023": { gdp: 900, gdp_per_capita: 9000, population: 100 },
+            "2022": { gdp: 850, gdp_per_capita: 8500, population: 100 }
+        }
+    };
 }
 
 // Update the display with current data
 function updateDisplay() {
+    if (Object.keys(allCountriesData).length === 0) {
+        console.log("No country data loaded yet");
+        return;
+    }
+    
     updateRanking();
     updateGlobalStats();
     updateChart();
@@ -123,9 +200,9 @@ function updateChart() {
     const countriesArray = Object.values(allCountriesData);
     const sortedCountries = [...countriesArray].sort((a, b) => 
         b.gdp_data[currentYear].gdp - a.gdp_data[currentYear].gdp
-    );
+    ).slice(0, 10); // Show top 10
     
-    const chartType = currentView === "gdp" ? "bar" : "bar";
+    const chartType = "bar";
     const chartLabel = currentView === "gdp" ? "GDP (Billions USD)" : "GDP per Capita (USD)";
     const chartData = currentView === "gdp" 
         ? sortedCountries.map(c => c.gdp_data[currentYear].gdp)
@@ -133,7 +210,13 @@ function updateChart() {
     
     // Update chart title
     document.getElementById('chartTitle').textContent = 
-        `Top 5 Countries by ${currentView === "gdp" ? "GDP" : "GDP per Capita"} (${currentYear})`;
+        `Top ${sortedCountries.length} Countries by ${currentView === "gdp" ? "GDP" : "GDP per Capita"} (${currentYear})`;
+    
+    // Generate colors for chart
+    const colors = [
+        '#667eea', '#f093fb', '#4facfe', '#43e97b', '#38f9d7',
+        '#fa709a', '#fee140', '#a8edea', '#d299c2', '#f6d365'
+    ];
     
     currentChart = new Chart(ctx, {
         type: chartType,
@@ -142,12 +225,8 @@ function updateChart() {
             datasets: [{
                 label: chartLabel,
                 data: chartData,
-                backgroundColor: [
-                    '#667eea', '#f093fb', '#4facfe', '#43e97b', '#38f9d7'
-                ],
-                borderColor: [
-                    '#5a6fd8', '#e082f1', '#3e9bf6', '#38d872', '#2ee9cf'
-                ],
+                backgroundColor: colors.slice(0, sortedCountries.length),
+                borderColor: colors.slice(0, sortedCountries.length).map(c => darkenColor(c, 20)),
                 borderWidth: 2
             }]
         },
@@ -157,6 +236,16 @@ function updateChart() {
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = context.parsed.y;
+                            return currentView === "gdp" 
+                                ? `GDP: $${formatNumber(value)} Billion`
+                                : `GDP per capita: $${formatNumber(value)}`;
+                        }
+                    }
                 }
             },
             scales: {
@@ -236,7 +325,9 @@ function showCountryDetails(country) {
         key => allCountriesData[key].name === country.name
     );
     document.getElementById('viewFullProfile').onclick = () => {
-        window.open(`countries/${countryKey}.html`, '_blank');
+        if (countryKey && countryFiles.includes(countryKey)) {
+            window.open(`countries/${countryKey}.html`, '_blank');
+        }
     };
 }
 
@@ -294,7 +385,7 @@ function setupEventListeners() {
         const query = this.value.toLowerCase().trim();
         searchResults.innerHTML = '';
         
-        if (query.length > 0) {
+        if (query.length > 0 && Object.keys(allCountriesData).length > 0) {
             const countriesArray = Object.values(allCountriesData);
             const filtered = countriesArray.filter(country => 
                 country.name.toLowerCase().includes(query) ||
@@ -331,9 +422,39 @@ function setupEventListeners() {
             searchResults.style.display = 'none';
         }
     });
+    
+    // View full profile button
+    document.getElementById('viewFullProfile').addEventListener('click', function() {
+        const selectedCountry = document.querySelector('.ranking-item:hover');
+        if (selectedCountry) {
+            const countryName = selectedCountry.querySelector('.country-name').textContent;
+            const country = Object.values(allCountriesData).find(c => c.name === countryName);
+            if (country) {
+                const countryKey = Object.keys(allCountriesData).find(
+                    key => allCountriesData[key].name === country.name
+                );
+                if (countryKey) {
+                    window.open(`countries/${countryKey}.html`, '_blank');
+                }
+            }
+        }
+    });
 }
 
 // Helper function to format numbers with commas
 function formatNumber(num) {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// Helper function to darken colors
+function darkenColor(color, percent) {
+    const num = parseInt(color.replace("#", ""), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) - amt;
+    const G = (num >> 8 & 0x00FF) - amt;
+    const B = (num & 0x0000FF) - amt;
+    
+    return "#" + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+        (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+        (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
 }
