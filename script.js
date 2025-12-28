@@ -1,187 +1,173 @@
-// Sample country data for demonstration
-const countries = [
-    {
-        id: "usa",
-        name: "United States",
-        historical_names: ["United States of America"],
-        gdp_2023: 26840.0, // in billions
-        gdp_per_capita_2023: 80165,
-        population: 334.9, // in millions
-        region: "North America",
-        currency: "USD",
-        world_share: 25.6,
-        growth: 2.1
-    },
-    {
-        id: "china",
-        name: "China",
-        historical_names: ["Chinese Empire", "Republic of China", "People's Republic of China"],
-        gdp_2023: 17960.0,
-        gdp_per_capita_2023: 12720,
-        population: 1412.4,
-        region: "East Asia",
-        currency: "CNY",
-        world_share: 17.1,
-        growth: 5.2
-    },
-    {
-        id: "japan",
-        name: "Japan",
-        historical_names: ["Empire of Japan", "State of Japan"],
-        gdp_2023: 4210.0,
-        gdp_per_capita_2023: 33638,
-        population: 124.9,
-        region: "East Asia",
-        currency: "JPY",
-        world_share: 4.0,
-        growth: 1.9
-    },
-    {
-        id: "germany",
-        name: "Germany",
-        historical_names: ["West Germany", "East Germany", "Federal Republic of Germany"],
-        gdp_2023: 4080.0,
-        gdp_per_capita_2023: 48398,
-        population: 84.3,
-        region: "Europe",
-        currency: "EUR",
-        world_share: 3.9,
-        growth: -0.3
-    },
-    {
-        id: "india",
-        name: "India",
-        historical_names: ["British India", "Dominion of India", "Republic of India"],
-        gdp_2023: 3670.0,
-        gdp_per_capita_2023: 2566,
-        population: 1428.6,
-        region: "South Asia",
-        currency: "INR",
-        world_share: 3.5,
-        growth: 6.3
-    }
-];
+// Global variables
+let currentYear = "2025";
+let currentView = "gdp"; // or "gdp_per_capita"
+let allCountriesData = {};
+let currentChart = null;
 
 // Initialize
-document.addEventListener('DOMContentLoaded', function() {
-    loadRanking('gdp');
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadAllCountriesData();
+    updateDisplay();
     setupEventListeners();
-    loadChart();
 });
 
-// Load ranking
-function loadRanking(type) {
+// Load all country data files
+async function loadAllCountriesData() {
+    const countries = ['china', 'usa', 'india', 'germany', 'japan'];
+    
+    for (const country of countries) {
+        try {
+            const response = await fetch(`countries/${country}.html`);
+            const html = await response.text();
+            
+            // Extract the data from the script tag
+            const dataMatch = html.match(/const \w+GDPData = ({[\s\S]*?});/);
+            if (dataMatch) {
+                const dataString = dataMatch[1];
+                // Fix the string to make it valid JSON
+                const jsonString = dataString.replace(/(\w+):/g, '"$1":')
+                    .replace(/'/g, '"');
+                const countryData = JSON.parse(jsonString);
+                allCountriesData[country] = countryData;
+            }
+        } catch (error) {
+            console.error(`Error loading ${country} data:`, error);
+        }
+    }
+}
+
+// Update the display with current data
+function updateDisplay() {
+    updateRanking();
+    updateGlobalStats();
+    updateChart();
+}
+
+// Update ranking list
+function updateRanking() {
     const rankingList = document.getElementById('rankingList');
     const rankingType = document.getElementById('rankingType');
     
-    // Sort countries based on type
-    let sortedCountries = [...countries];
-    if (type === 'gdp') {
-        sortedCountries.sort((a, b) => b.gdp_2023 - a.gdp_2023);
-        rankingType.textContent = 'Total GDP';
+    // Convert object to array and sort
+    const countriesArray = Object.values(allCountriesData);
+    
+    if (currentView === "gdp") {
+        countriesArray.sort((a, b) => 
+            b.gdp_data[currentYear].gdp - a.gdp_data[currentYear].gdp
+        );
+        rankingType.textContent = "Total GDP (Billions USD)";
     } else {
-        sortedCountries.sort((a, b) => b.gdp_per_capita_2023 - a.gdp_per_capita_2023);
-        rankingType.textContent = 'GDP per Capita';
+        countriesArray.sort((a, b) => 
+            b.gdp_data[currentYear].gdp_per_capita - a.gdp_data[currentYear].gdp_per_capita
+        );
+        rankingType.textContent = "GDP per Capita (USD)";
     }
+    
+    // Update year label
+    document.querySelector('.year-label').textContent = currentYear;
     
     // Generate ranking HTML
     rankingList.innerHTML = '';
-    sortedCountries.forEach((country, index) => {
-        const rankClass = `rank-${index + 1}`;
-        const gdpValue = type === 'gdp' 
-            ? formatCurrency(country.gdp_2023) + 'B'
-            : '$' + formatNumber(country.gdp_per_capita_2023);
+    countriesArray.forEach((country, index) => {
+        const value = currentView === "gdp" 
+            ? `$${formatNumber(country.gdp_data[currentYear].gdp)}B`
+            : `$${formatNumber(country.gdp_data[currentYear].gdp_per_capita)}`;
         
         const item = document.createElement('div');
         item.className = 'ranking-item';
         item.innerHTML = `
-            <div class="rank ${rankClass}">${index + 1}</div>
+            <div class="rank rank-${index + 1}">${index + 1}</div>
             <div class="country-name">${country.name}</div>
-            <div class="country-gdp">${gdpValue}</div>
+            <div class="country-gdp">${value}</div>
         `;
         item.addEventListener('click', () => showCountryDetails(country));
         rankingList.appendChild(item);
     });
-    
-    // Update global stats
-    updateGlobalStats(sortedCountries);
-}
-
-// Show country details
-function showCountryDetails(country) {
-    const countryInfo = document.getElementById('selectedCountryInfo');
-    const countryStats = document.getElementById('countryStats');
-    
-    countryInfo.innerHTML = `
-        <h4>${country.name}</h4>
-        <p>Region: ${country.region}</p>
-        <a href="${country.id}.html" class="back-button" style="padding: 5px 10px; font-size: 0.9em;">
-            View Full Profile
-        </a>
-    `;
-    
-    countryStats.innerHTML = `
-        <div class="detail-item">
-            <div class="stat-label">Total GDP</div>
-            <div class="detail-value">${formatCurrency(country.gdp_2023)}B</div>
-        </div>
-        <div class="detail-item">
-            <div class="stat-label">GDP/Capita</div>
-            <div class="detail-value">$${formatNumber(country.gdp_per_capita_2023)}</div>
-        </div>
-        <div class="detail-item">
-            <div class="stat-label">Population</div>
-            <div class="detail-value">${formatNumber(country.population)}M</div>
-        </div>
-        <div class="detail-item">
-            <div class="stat-label">World Share</div>
-            <div class="detail-value">${country.world_share}%</div>
-        </div>
-        <div class="detail-item">
-            <div class="stat-label">Growth</div>
-            <div class="detail-value">${country.growth}%</div>
-        </div>
-    `;
-    countryStats.style.display = 'grid';
 }
 
 // Update global statistics
-function updateGlobalStats(sortedCountries) {
-    const totalGDP = sortedCountries.reduce((sum, country) => sum + country.gdp_2023, 0);
-    const avgGDPCapita = sortedCountries.reduce((sum, country) => sum + country.gdp_per_capita_2023, 0) / sortedCountries.length;
+function updateGlobalStats() {
+    const countriesArray = Object.values(allCountriesData);
     
-    document.getElementById('globalGdp').textContent = '$' + formatCurrency(totalGDP) + 'T';
-    document.getElementById('avgGdpCapita').textContent = '$' + formatNumber(Math.round(avgGDPCapita));
-    document.getElementById('topCountry').textContent = sortedCountries[0].name;
-    document.getElementById('countryCount').textContent = sortedCountries.length;
+    // Calculate global GDP (sum of all countries)
+    const globalGDP = countriesArray.reduce((sum, country) => 
+        sum + country.gdp_data[currentYear].gdp, 0
+    );
+    
+    // Calculate average GDP per capita
+    const avgGDPCapita = countriesArray.reduce((sum, country) => 
+        sum + country.gdp_data[currentYear].gdp_per_capita, 0
+    ) / countriesArray.length;
+    
+    // Get top country
+    const topCountry = countriesArray.sort((a, b) => 
+        b.gdp_data[currentYear].gdp - a.gdp_data[currentYear].gdp
+    )[0];
+    
+    // Update DOM
+    document.getElementById('globalGdp').textContent = `$${formatNumber(globalGDP / 1000)}T`;
+    document.getElementById('avgGdpCapita').textContent = `$${formatNumber(Math.round(avgGDPCapita))}`;
+    document.getElementById('topCountry').textContent = topCountry.name;
+    document.getElementById('countryCount').textContent = countriesArray.length;
 }
 
-// Load chart
-function loadChart() {
+// Update the chart
+function updateChart() {
     const ctx = document.getElementById('gdpChart').getContext('2d');
-    const sortedCountries = [...countries].sort((a, b) => b.gdp_2023 - a.gdp_2023);
-    const top10 = sortedCountries.slice(0, 10);
     
-    new Chart(ctx, {
-        type: 'bar',
+    // Destroy previous chart if exists
+    if (currentChart) {
+        currentChart.destroy();
+    }
+    
+    const countriesArray = Object.values(allCountriesData);
+    const sortedCountries = [...countriesArray].sort((a, b) => 
+        b.gdp_data[currentYear].gdp - a.gdp_data[currentYear].gdp
+    );
+    
+    const chartType = currentView === "gdp" ? "bar" : "bar";
+    const chartLabel = currentView === "gdp" ? "GDP (Billions USD)" : "GDP per Capita (USD)";
+    const chartData = currentView === "gdp" 
+        ? sortedCountries.map(c => c.gdp_data[currentYear].gdp)
+        : sortedCountries.map(c => c.gdp_data[currentYear].gdp_per_capita);
+    
+    // Update chart title
+    document.getElementById('chartTitle').textContent = 
+        `Top 5 Countries by ${currentView === "gdp" ? "GDP" : "GDP per Capita"} (${currentYear})`;
+    
+    currentChart = new Chart(ctx, {
+        type: chartType,
         data: {
-            labels: top10.map(c => c.name),
+            labels: sortedCountries.map(c => c.name),
             datasets: [{
-                label: 'GDP (Billions USD)',
-                data: top10.map(c => c.gdp_2023),
-                backgroundColor: '#4a6ee0',
-                borderColor: '#3a5ed0',
-                borderWidth: 1
+                label: chartLabel,
+                data: chartData,
+                backgroundColor: [
+                    '#667eea', '#f093fb', '#4facfe', '#43e97b', '#38f9d7'
+                ],
+                borderColor: [
+                    '#5a6fd8', '#e082f1', '#3e9bf6', '#38d872', '#2ee9cf'
+                ],
+                borderWidth: 2
             }]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
             scales: {
                 y: {
                     beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'GDP (Billions USD)'
+                    ticks: {
+                        callback: function(value) {
+                            return currentView === "gdp" 
+                                ? `$${formatNumber(value)}B`
+                                : `$${formatNumber(value)}`;
+                        }
                     }
                 }
             }
@@ -189,28 +175,115 @@ function loadChart() {
     });
 }
 
+// Show country details when clicked
+function showCountryDetails(country) {
+    const currentData = country.gdp_data[currentYear];
+    
+    // Update basic info
+    document.getElementById('selectedCountryInfo').innerHTML = `
+        <h4>${country.name}</h4>
+        <p><strong>Region:</strong> ${country.region}</p>
+        <p><strong>Currency:</strong> ${country.currency}</p>
+        <p><strong>Historical Names:</strong> ${country.historical_names.join(" → ")}</p>
+    `;
+    
+    // Update stats grid
+    document.getElementById('countryStats').innerHTML = `
+        <div class="stat-item-small">
+            <div class="stat-label-small">GDP (${currentYear})</div>
+            <div class="stat-value-small">$${formatNumber(currentData.gdp)}B</div>
+        </div>
+        <div class="stat-item-small">
+            <div class="stat-label-small">GDP/Capita</div>
+            <div class="stat-value-small">$${formatNumber(currentData.gdp_per_capita)}</div>
+        </div>
+        <div class="stat-item-small">
+            <div class="stat-label-small">Population</div>
+            <div class="stat-value-small">${formatNumber(currentData.population)}M</div>
+        </div>
+        <div class="stat-item-small">
+            <div class="stat-label-small">World Rank</div>
+            <div class="stat-value-small">#${getCountryRank(country)}</div>
+        </div>
+        <div class="stat-item-small">
+            <div class="stat-label-small">Growth (YoY)</div>
+            <div class="stat-value-small">${calculateGrowthRate(country)}%</div>
+        </div>
+    `;
+    
+    // Update historical data table
+    const historicalBody = document.getElementById('historicalDataBody');
+    historicalBody.innerHTML = '';
+    
+    for (let year = 2025; year >= 2022; year--) {
+        if (country.gdp_data[year]) {
+            const yearData = country.gdp_data[year];
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${year}</td>
+                <td>$${formatNumber(yearData.gdp)} Billion</td>
+                <td>$${formatNumber(yearData.gdp_per_capita)}</td>
+            `;
+            historicalBody.appendChild(row);
+        }
+    }
+    
+    // Show historical data section
+    document.getElementById('historicalData').style.display = 'block';
+    
+    // Update view profile button
+    const countryKey = Object.keys(allCountriesData).find(
+        key => allCountriesData[key].name === country.name
+    );
+    document.getElementById('viewFullProfile').onclick = () => {
+        window.open(`countries/${countryKey}.html`, '_blank');
+    };
+}
+
+// Get country rank
+function getCountryRank(country) {
+    const countriesArray = Object.values(allCountriesData);
+    countriesArray.sort((a, b) => 
+        b.gdp_data[currentYear].gdp - a.gdp_data[currentYear].gdp
+    );
+    return countriesArray.findIndex(c => c.name === country.name) + 1;
+}
+
+// Calculate year-over-year growth rate
+function calculateGrowthRate(country) {
+    const currentYearInt = parseInt(currentYear);
+    const prevYear = (currentYearInt - 1).toString();
+    
+    if (country.gdp_data[prevYear]) {
+        const currentGDP = country.gdp_data[currentYear].gdp;
+        const prevGDP = country.gdp_data[prevYear].gdp;
+        const growth = ((currentGDP - prevGDP) / prevGDP) * 100;
+        return growth.toFixed(1);
+    }
+    return "N/A";
+}
+
 // Setup event listeners
 function setupEventListeners() {
-    // GDP total button
-    document.getElementById('gdpTotalBtn').addEventListener('click', function() {
-        this.classList.add('active');
-        document.getElementById('gdpPerCapitaBtn').classList.remove('active');
-        loadRanking('gdp');
-        document.getElementById('chartTitle').textContent = 'Top 10 Countries by GDP (2023)';
-    });
-    
-    // GDP per capita button
-    document.getElementById('gdpPerCapitaBtn').addEventListener('click', function() {
-        this.classList.add('active');
-        document.getElementById('gdpTotalBtn').classList.remove('active');
-        loadRanking('gdp_per_capita');
-        document.getElementById('chartTitle').textContent = 'Top 10 Countries by GDP per Capita (2023)';
-    });
-    
     // Year selector
     document.getElementById('yearSelect').addEventListener('change', function() {
-        // In a real app, this would load data for the selected year
-        alert('Loading data for ' + this.value + '...');
+        currentYear = this.value;
+        updateDisplay();
+    });
+    
+    // View toggle buttons
+    document.getElementById('gdpTotalBtn').addEventListener('click', function() {
+        currentView = "gdp";
+        this.classList.add('active');
+        document.getElementById('gdpPerCapitaBtn').classList.remove('active');
+        updateDisplay();
+    });
+    
+    document.getElementById('gdpPerCapitaBtn').addEventListener('click', function() {
+        currentView = "gdp_per_capita";
+        this.classList.add('active');
+        document.getElementById('gdpTotalBtn').classList.remove('active');
+        updateDisplay();
     });
     
     // Search functionality
@@ -218,13 +291,16 @@ function setupEventListeners() {
     const searchResults = document.getElementById('searchResults');
     
     searchInput.addEventListener('input', function() {
-        const query = this.value.toLowerCase();
+        const query = this.value.toLowerCase().trim();
         searchResults.innerHTML = '';
         
         if (query.length > 0) {
-            const filtered = countries.filter(country => 
+            const countriesArray = Object.values(allCountriesData);
+            const filtered = countriesArray.filter(country => 
                 country.name.toLowerCase().includes(query) ||
-                country.historical_names.some(name => name.toLowerCase().includes(query))
+                country.historical_names.some(name => 
+                    name.toLowerCase().includes(query)
+                )
             );
             
             if (filtered.length > 0) {
@@ -234,7 +310,7 @@ function setupEventListeners() {
                     item.className = 'search-result-item';
                     item.innerHTML = `
                         <span>${country.name}</span>
-                        <span>$${formatCurrency(country.gdp_2023)}B</span>
+                        <span class="gdp-value">$${formatNumber(country.gdp_data[currentYear].gdp)}B</span>
                     `;
                     item.addEventListener('click', () => {
                         showCountryDetails(country);
@@ -249,7 +325,7 @@ function setupEventListeners() {
         }
     });
     
-    // Close search results when clicking elsewhere
+    // Close search results when clicking outside
     document.addEventListener('click', function(e) {
         if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
             searchResults.style.display = 'none';
@@ -257,14 +333,7 @@ function setupEventListeners() {
     });
 }
 
-// Helper functions
+// Helper function to format numbers with commas
 function formatNumber(num) {
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-function formatCurrency(num) {
-    if (num >= 1000) {
-        return (num / 1000).toFixed(1) + 'T';
-    }
-    return formatNumber(Math.round(num));
 }
